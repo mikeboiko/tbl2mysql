@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # =======================================================================
 # === Description ...: Load table into MySQL database
-# === Description ...: The tablse can be Excel or CSV based
+# === Description ...: The table can be Excel or CSV based
 # === Author ........: Mike Boiko and Travis Gall
 # =======================================================================
 
@@ -132,10 +132,14 @@ def initializeExcel(): # {{{2
 def prepareSqlQueries(): # {{{2
     'Prepare sql query strings'
 
-    global sqlQueryCreate # Create Table
-    global sqlQueryInsert # Insert into Table
+    global sqlQueryCreate        # Create Table
+    global sqlQueryInsert        # Insert into Table
+    global sqlQueryInsertGeneric # Insert query generic string
+    global sqlQueryTotal         # Combined queries
 
+    # Prepare sql substrings that will be joined later
     sqlQueryInsert = ''
+    sqlQueryDrop = f'drop table if exists {sqlTableName}; '
 
     sqlQueryCreate = f'create table {sqlTableName} (id int not null auto_increment primary key, '
     sqlInsertA = "insert into " + sqlTableName + " ("
@@ -145,52 +149,66 @@ def prepareSqlQueries(): # {{{2
         sqlInsertA += header + ", "
         sqlInsertB += r"'{}', "
     sqlQueryCreate = sqlQueryCreate[:-2] # Remove last ,
-    sqlQueryCreate += ")"
+    sqlQueryCreate += '); '
     sqlInsertA = sqlInsertA[:-2] # Remove last ,
     sqlInsertB = sqlInsertB[:-2] # Remove last ,
-    sqlQueryInsertTemplate = sqlInsertA + ") VALUES (" + sqlInsertB + ")"
+    sqlQueryInsertGeneric = sqlInsertA + ") VALUES (" + sqlInsertB + ")"
+
+    # TODO-MB [171125] - Re-write this script so the CSV/XL if statement doesn't have to happen twice
+
+    # CSV - Prepare insert SQL query
+    if inputTableIsCSV:
+        sqlInsertDataFromCSV()
+    # Excel - Prepare insert SQL query
+    elif inputTableIsExcel:
+        sqlInsertDataFromExcel()
+    # There may be other types of tables other than Excel/CSV added later
+
+    # All of the SQL queries combined into one string
+    sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
+
+def sqlInsertDataFromCSV(): # {{{2
+    'CSV - Prepare insert SQL query'
+
+    global sqlQueryInsert # Insert into Table
 
     with open(args.inputTableName, newline='') as fileCSV:
         reader = csv.reader(fileCSV)
         next(reader) # Skip header line
         for row in reader:
             # Row needs to be converted from list to tuple and expanded with *
-            sqlQueryInsert += sqlQueryInsertTemplate.format(*tuple(row)) + ';\n'
-
-def sqlCreateTable(): # {{{2
-    'Create Table in MySQL db'
-
-    # Delete old table
-    cursor.execute("drop table if exists " + sqlTableName)
-
-    # Create new table
-    cursor.execute(sqlQueryCreate)
-
-    # Insert into table
-    cursor.execute(sqlQueryInsert)
-
-def sqlInsertDataFromCSV(): # {{{2
-    'Insert data from CSV table into SQL table'
-
-    return
-    with open(args.inputTableName, newline='') as fileCSV:
-        reader = csv.reader(fileCSV)
-        next(reader) # Skip header line
-        for row in reader:
-            sqlQueryInsertTemplate = sqlQueryInsertTemplate.format(row)
-            # values = () # blank tuple
-            # for cell in row:
-                # values = values + (cell,)
-            # cursor.execute(sqlQueryInsertTemplate, values)
+            sqlQueryInsert += sqlQueryInsertGeneric.format(*tuple(row)) + '; '
 
 def sqlInsertDataFromExcel(): # {{{2
-    'Insert data from Excel table into SQL table'
+    'Excel - Prepare insert SQL query'
+
+    global sqlQueryInsert # Insert into Table
 
     for rowNum in range(1, sheet.nrows):
         values = () # blank tuple
         for colNum in range(0, sheet.ncols):
             values = values + (sheet.cell(rowNum,colNum).value,)
-        cursor.execute(sqlQueryInsertTemplate, values)
+        # Tuple needs to expanded with * for format function
+        sqlQueryInsert += sqlQueryInsertGeneric.format(*tuple(values)) + '; '
+
+def mySqlWrite(): # {{{2
+    'Perform MySQL db write operations'
+
+    # MySQL Connection
+    db = pymysql.connect(host=args.host,
+                         port=args.port,
+                         user=args.user,
+                         passwd=args.password,
+                         db=args.database)
+
+    try:
+        # Exexute query
+        db.cursor().execute(sqlQueryTotal)
+
+        # Commit all database modifications
+        db.commit()
+    finally:
+        db.close()
 
 # Main Program {{{1
 
@@ -214,29 +232,8 @@ elif inputTableIsExcel:
 # Prepare sql query strings
 prepareSqlQueries()
 
-# MySQL Connection
-db = pymysql.connect(host=args.host,
-                     port=args.port,
-                     user=args.user,
-                     passwd=args.password,
-                     db=args.database)
-cursor = db.cursor()
-
-# Create Table in MySQL db
-sqlCreateTable()
-
-# Insert data from CSV table into SQL table
-if inputTableIsCSV:
-    sqlInsertDataFromCSV()
-# Insert data from Excel table into SQL table
-elif inputTableIsExcel:
-    sqlInsertDataFromExcel()
-# There may be other types of tables other than Excel/CSV added later
-
-# Close DB Connection {{{2
-cursor.close()
-db.commit()
-db.close()
+# Perform MySQL db write operations
+mySqlWrite()
 
 # os.system("pause")
 # sys.exit()
