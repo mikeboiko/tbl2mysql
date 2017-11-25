@@ -135,18 +135,27 @@ def prepareSqlQueries(): # {{{2
     global sqlQueryCreate # Create Table
     global sqlQueryInsert # Insert into Table
 
-    sqlQueryCreate = "create table " + sqlTableName + " (id int not null auto_increment primary key, "
-    sql2a = "insert into " + sqlTableName + " ("
-    sql2b = ""
+    sqlQueryInsert = ''
+
+    sqlQueryCreate = f'create table {sqlTableName} (id int not null auto_increment primary key, '
+    sqlInsertA = "insert into " + sqlTableName + " ("
+    sqlInsertB = ""
     for header in headerRow:
         sqlQueryCreate += header + " text,\n"
-        sql2a += header + ", "
-        sql2b += "%s, "
+        sqlInsertA += header + ", "
+        sqlInsertB += r"'{}', "
     sqlQueryCreate = sqlQueryCreate[:-2] # Remove last ,
     sqlQueryCreate += ")"
-    sql2a = sql2a[:-2] # Remove last ,
-    sql2b = sql2b[:-2] # Remove last ,
-    sqlQueryInsert = sql2a + ") VALUES (" + sql2b + ")"
+    sqlInsertA = sqlInsertA[:-2] # Remove last ,
+    sqlInsertB = sqlInsertB[:-2] # Remove last ,
+    sqlQueryInsertTemplate = sqlInsertA + ") VALUES (" + sqlInsertB + ")"
+
+    with open(args.inputTableName, newline='') as fileCSV:
+        reader = csv.reader(fileCSV)
+        next(reader) # Skip header line
+        for row in reader:
+            # Row needs to be converted from list to tuple and expanded with *
+            sqlQueryInsert += sqlQueryInsertTemplate.format(*tuple(row)) + ';\n'
 
 def sqlCreateTable(): # {{{2
     'Create Table in MySQL db'
@@ -157,18 +166,22 @@ def sqlCreateTable(): # {{{2
     # Create new table
     cursor.execute(sqlQueryCreate)
 
+    # Insert into table
+    cursor.execute(sqlQueryInsert)
 
 def sqlInsertDataFromCSV(): # {{{2
     'Insert data from CSV table into SQL table'
 
+    return
     with open(args.inputTableName, newline='') as fileCSV:
         reader = csv.reader(fileCSV)
         next(reader) # Skip header line
         for row in reader:
-            values = () # blank tuple
-            for cell in row:
-                values = values + (cell,)
-            cursor.execute(sqlQueryInsert, values)
+            sqlQueryInsertTemplate = sqlQueryInsertTemplate.format(row)
+            # values = () # blank tuple
+            # for cell in row:
+                # values = values + (cell,)
+            # cursor.execute(sqlQueryInsertTemplate, values)
 
 def sqlInsertDataFromExcel(): # {{{2
     'Insert data from Excel table into SQL table'
@@ -177,7 +190,7 @@ def sqlInsertDataFromExcel(): # {{{2
         values = () # blank tuple
         for colNum in range(0, sheet.ncols):
             values = values + (sheet.cell(rowNum,colNum).value,)
-        cursor.execute(sqlQueryInsert, values)
+        cursor.execute(sqlQueryInsertTemplate, values)
 
 # Main Program {{{1
 
@@ -200,10 +213,6 @@ elif inputTableIsExcel:
 
 # Prepare sql query strings
 prepareSqlQueries()
-
-# It made more sense to keep the table creation/insertion queries seperate
-# This way the insert query doesn't have to store all data in memory
-# but rather reads one row at a time, inserts and moves on
 
 # MySQL Connection
 db = pymysql.connect(host=args.host,
