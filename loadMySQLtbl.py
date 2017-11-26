@@ -1,21 +1,21 @@
-#!/usr/bin/python3
 # =======================================================================
 # === Description ...: Load table into MySQL database
-# === Description ...: The table can be Excel or CSV based
-# === Author ........: Mike Boiko and Travis Gall
+# ===             ...: The table can be Excel or CSV based
+# === Authors .......: Mike Boiko and Travis Gall
 # =======================================================================
 
 # Imports {{{1
 
-import argparse
-import csv
-import os
-import pymysql
-import sys
-import xlrd
+import argparse # Argument parsing
+import csv      # CSV read/write
+import os       # OS interface
+import pymysql  # MySQL connection
+import sys      # System functions
+import xlrd     # Excel Connection
 
 # Parse Arguments {{{1
 
+# Create parser with script description
 parser = argparse.ArgumentParser(description='Convert Excel Table to MySQL Table')
 
 parser.add_argument(dest='inputTableName', action='store',
@@ -40,8 +40,11 @@ parser.add_argument('-db', '--database', dest='database', action='store',
                     help='MySQL database name')
 parser.add_argument('-t', '--table', dest='sqlTableName', action='store',
                     default='default',
-                    help='MySQL table name - default is Workbook name')
+                    help='MySQL table name - default is the input name')
+parser.add_argument('--newTable', action='store_true',
+                    help='Create a new table in db, drop the old one if it exists.')
 
+# Create objects from arguments passed and information within parser
 args = parser.parse_args()
 
 # Variables/Constants {{{1
@@ -111,50 +114,60 @@ def initializeCSV(): # {{{2
 
     global headerRow # Table field names
 
+    # Open CSV and read first line
     with open(args.inputTableName, newline='') as fileCSV:
         reader = csv.reader(fileCSV)
-        headerRow = next(reader)  # gets the first line
+
+        # Get header row (used for extracting field names)
+        headerRow = next(reader)
 
 def initializeExcel(): # {{{2
     'Perform initialization for Excel file types'
     print('Parsing {} Excel table into {} MySql db'.format(args.inputTableName, args.database))
 
-    global headerRow # Table field names
-    global sheet     # Excel worksheet object
+    global headerRow     # Table field names
+    global sheet         # Excel worksheet object
+    global excelWorkbook # Excel book object
 
-    excelWorkbookName = xlrd.open_workbook(args.inputTableName)
+    # Create connection to excel workbook without preloading sheet data
+    #  - This will improve initial load time
+    excelWorkbook = xlrd.open_workbook(args.inputTableName, on_demand = True)
+
+    # User either specifies a worksheet by name or the first sheet is used
     if args.excelWorksheetName == 'default':
-        sheet = excelWorkbookName.sheet_by_index(0)
+        sheet = excelWorkbook.sheet_by_index(0)
     else:
-        sheet = excelWorkbookName.sheet_by_name(args.excelWorksheetName)
+        sheet = excelWorkbook.sheet_by_name(args.excelWorksheetName)
+
+    # Get header row (used for extracting field names)
     headerRow = sheet.row_values(0)
 
-def prepareSqlQueries(): # {{{2
+def sqlQueriesPrepare(): # {{{2
     'Prepare sql query strings'
 
-    global sqlQueryCreate        # Create Table
-    global sqlQueryInsert        # Insert into Table
+    global sqlQueryCreate        # Create table query
+    global sqlQueryDrop          # Drop table query
+    global sqlQueryInsert        # Insert into Table query
     global sqlQueryInsertGeneric # Insert query generic string
-    global sqlQueryTotal         # Combined queries
 
     # Prepare sql substrings that will be joined later
     sqlQueryInsert = ''
-    sqlQueryDrop = f'drop table if exists {sqlTableName}; '
+    sqlQueryDrop = f'DROP TABLE IF EXISTS {sqlTableName}; '
 
-    sqlQueryCreate = f'create table {sqlTableName} (id int not null auto_increment primary key, '
-    sqlInsertA = "insert into " + sqlTableName + " ("
-    sqlInsertB = ""
+    sqlQueryCreate = f'CREATE TABLE {sqlTableName} (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, '
+    sqlInsertA = f'INSERT INTO {sqlTableName} ('
+    sqlInsertB = ''
     for header in headerRow:
-        sqlQueryCreate += header + " text,\n"
-        sqlInsertA += header + ", "
+        sqlQueryCreate += f'{header} TEXT, '
+        sqlInsertA += f'{header} , '
         sqlInsertB += r"'{}', "
     sqlQueryCreate = sqlQueryCreate[:-2] # Remove last ,
     sqlQueryCreate += '); '
     sqlInsertA = sqlInsertA[:-2] # Remove last ,
     sqlInsertB = sqlInsertB[:-2] # Remove last ,
-    sqlQueryInsertGeneric = sqlInsertA + ") VALUES (" + sqlInsertB + ")"
+    sqlQueryInsertGeneric = f'{sqlInsertA}) VALUES ({sqlInsertB})'
 
-    # TODO-MB [171125] - Re-write this script so the CSV/XL if statement doesn't have to happen twice
+    # TODO-MB [171125] - Re-write this script so the CSV/XL if statement only occurs one time
 
     # CSV - Prepare insert SQL query
     if inputTableIsCSV:
@@ -163,9 +176,6 @@ def prepareSqlQueries(): # {{{2
     elif inputTableIsExcel:
         sqlInsertDataFromExcel()
     # There may be other types of tables other than Excel/CSV added later
-
-    # All of the SQL queries combined into one string
-    sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
 
 def sqlInsertDataFromCSV(): # {{{2
     'CSV - Prepare insert SQL query'
@@ -184,12 +194,34 @@ def sqlInsertDataFromExcel(): # {{{2
 
     global sqlQueryInsert # Insert into Table
 
+    # Loop through each cell
     for rowNum in range(1, sheet.nrows):
-        values = () # blank tuple
+        values = () # Initialize blank tuple
+
         for colNum in range(0, sheet.ncols):
             values = values + (sheet.cell(rowNum,colNum).value,)
+
         # Tuple needs to expanded with * for format function
         sqlQueryInsert += sqlQueryInsertGeneric.format(*tuple(values)) + '; '
+
+    # Close workbook connection required for on_demand sheet data
+    excelWorkbook.release_resources()
+
+def sqlQueriesSelect():
+    '''Based on user arguments, decide whether to create
+    a new table or append records to existing table'''
+
+    global sqlQueryTotal  # Combined queries
+    global sqlQueryCreate # Create table query
+    global sqlQueryDrop   # Drop table query
+
+    # Don't drop/create new table unlsess user requested it
+    if not args.newTable:
+        sqlQueryDrop = ''
+        sqlQueryCreate = ''
+
+    # All of the SQL queries combined into one string
+    sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
 
 def mySqlWrite(): # {{{2
     'Perform MySQL db write operations'
@@ -230,7 +262,10 @@ elif inputTableIsExcel:
 # There may be other types of tables other than Excel/CSV added later
 
 # Prepare sql query strings
-prepareSqlQueries()
+sqlQueriesPrepare()
+
+# Select what kind of query to run
+sqlQueriesSelect()
 
 # Perform MySQL db write operations
 mySqlWrite()
