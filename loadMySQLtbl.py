@@ -101,8 +101,8 @@ def defineSqlDBTableName(): # {{{2
         # Strip out file name from path
         sqlTableName = os.path.basename(args.inputTableName)
         sqlTableName = os.path.splitext(sqlTableName)[0]
-        # Only keep alpha-numeric characters
-        sqlTableName = ''.join(e for e in sqlTableName if e.isalnum())
+        # Only keep alpha-numeric characters and underscores
+        sqlTableName = ''.join(e for e in sqlTableName if e.isalnum() or '_' in e)
 
     # User defined table name in argument
     else:
@@ -110,7 +110,7 @@ def defineSqlDBTableName(): # {{{2
 
 def initializeCSV(): # {{{2
     'Perform initialization for CSV file types'
-    print('Parsing {} CSV table into {} MySql db'.format(args.inputTableName, args.database))
+    print('Parsing {} CSV table into {} database'.format(args.inputTableName, args.database))
 
     global headerRow # Table field names
 
@@ -123,7 +123,7 @@ def initializeCSV(): # {{{2
 
 def initializeExcel(): # {{{2
     'Perform initialization for Excel file types'
-    print('Parsing {} Excel table into {} MySql db'.format(args.inputTableName, args.database))
+    print('Parsing {} Excel table into {} database'.format(args.inputTableName, args.database))
 
     global headerRow     # Table field names
     global sheet         # Excel worksheet object
