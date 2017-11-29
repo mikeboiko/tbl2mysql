@@ -41,8 +41,8 @@ parser.add_argument('-db', '--database', dest='database', action='store',
 parser.add_argument('-t', '--table', dest='sqlTableName', action='store',
                     default='default',
                     help='MySQL table name - default is the input name')
-parser.add_argument('--newTable', action='store_true',
-                    help='Create a new table in db, drop the old one if it exists.')
+parser.add_argument('--dropTable', action='store_true',
+                    help='Drop the old table if it exists.')
 
 # Create objects from arguments passed and information within parser
 args = parser.parse_args()
@@ -207,7 +207,7 @@ def sqlInsertDataFromExcel(): # {{{2
     # Close workbook connection required for on_demand sheet data
     excelWorkbook.release_resources()
 
-def sqlQueriesSelect():
+def sqlQueriesSelect(): # {{{2
     '''Based on user arguments, decide whether to create
     a new table or append records to existing table'''
 
@@ -215,16 +215,43 @@ def sqlQueriesSelect():
     global sqlQueryCreate # Create table query
     global sqlQueryDrop   # Drop table query
 
-    # Don't drop/create new table unlsess user requested it
-    if not args.newTable:
+    # Only drop table if it exists and user requested the deletion
+    if not args.dropTable or not sqlTableExists:
         sqlQueryDrop = ''
+
+    # Only create table when it doesn't exist or user requested drop
+    if sqlTableExists and not args.dropTable:
         sqlQueryCreate = ''
 
     # All of the SQL queries combined into one string
     sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
 
-def mySqlWrite(): # {{{2
-    'Perform MySQL db write operations'
+def checkIfTableExists(tableName): # {{{2
+    'Check if table already exists in database or not'
+
+    # Create cursor
+    dbCur = db.cursor()
+
+    # Query the information schema for table names
+    dbCur.execute("""
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_name = '{0}'
+        """.format(tableName.replace('\'', '\'\'')))
+
+    # Table exists
+    if dbCur.fetchone()[0] == 1:
+        dbCur.close()
+        return True
+
+    # Table doesn't exist
+    dbCur.close()
+    return False
+
+def mySqlDbConnect(): # {{{2
+    'Initialize db connection'
+
+    global db # Database object
 
     # MySQL Connection
     db = pymysql.connect(host=args.host,
@@ -232,6 +259,40 @@ def mySqlWrite(): # {{{2
                          user=args.user,
                          passwd=args.password,
                          db=args.database)
+
+def sqlAddNewFields(tableName): # {{{2
+    'When appending to existing table, add new fields if required'
+
+    # Create cursor
+    dbCur = db.cursor()
+
+    # Query the existing table for 1 row of data only
+    dbCur.execute(f'''
+        SELECT *
+        FROM {args.database}.{tableName}
+        LIMIT 1
+        ''')
+
+    # Find if there any fields in the input table that don't exist in the db table
+    numFields = len(dbCur.description)
+    fieldNames = [i[0] for i in dbCur.description]
+    newFields = list(set(headerRow) - set(fieldNames))
+
+    # If required, add new fields to db table
+    if len(newFields) > 0:
+        sqlQueryAlter = f'ALTER TABLE {sqlTableName} '
+        for field in newFields:
+            sqlQueryAlter += f'ADD COLUMN {field} TEXT, '
+        sqlQueryAlter = sqlQueryAlter[:-2] # Remove last ,
+
+        # Run alter query
+        dbCur.execute(sqlQueryAlter)
+
+    # Close cursor
+    dbCur.close()
+
+def mySqlWrite(): # {{{2
+    'Perform MySQL db write operations'
 
     try:
         # Exexute query
@@ -261,10 +322,20 @@ elif inputTableIsExcel:
     initializeExcel()
 # There may be other types of tables other than Excel/CSV added later
 
+# Initialize db connection
+mySqlDbConnect()
+
+# Check if sql table already exists or not
+sqlTableExists = checkIfTableExists(args.sqlTableName)
+
+# If appending to existing table, add new fields if required
+if sqlTableExists and not args.dropTable:
+    sqlAddNewFields(args.sqlTableName)
+
 # Prepare sql query strings
 sqlQueriesPrepare()
 
-# Select what kind of query to run
+# Select which queries to run
 sqlQueriesSelect()
 
 # Perform MySQL db write operations
