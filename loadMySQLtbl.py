@@ -226,18 +226,25 @@ def sqlQueriesSelect(): # {{{2
     # All of the SQL queries combined into one string
     sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
 
-def checkIfTableExists(tableName): # {{{2
+def checkIfTableExists(): # {{{2
     'Check if table already exists in database or not'
+
+    # global sqlTableName # Use table name defined in previous function
 
     # Create cursor
     dbCur = db.cursor()
 
     # Query the information schema for table names
-    dbCur.execute("""
-        SELECT COUNT(*)
-        FROM information_schema.tables
-        WHERE table_name = '{0}'
-        """.format(tableName.replace('\'', '\'\'')))
+    try:
+        dbCur.execute("""
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_name = '{0}'
+            """.format(sqlTableName.replace('\'', '\'\'')))
+    except:
+        # Print error to stdout
+        print("Unexpected error:", sys.exc_info()[0])
+        raise
 
     # Table exists
     if dbCur.fetchone()[0] == 1:
@@ -286,7 +293,12 @@ def sqlAddNewFields(tableName): # {{{2
         sqlQueryAlter = sqlQueryAlter[:-2] # Remove last ,
 
         # Run alter query
-        dbCur.execute(sqlQueryAlter)
+        try:
+            dbCur.execute(sqlQueryAlter)
+        except:
+            # Print error to stdout
+            print("Unexpected error:", sys.exc_info()[0])
+            raise
 
     # Close cursor
     dbCur.close()
@@ -326,7 +338,7 @@ elif inputTableIsExcel:
 mySqlDbConnect()
 
 # Check if sql table already exists or not
-sqlTableExists = checkIfTableExists(args.sqlTableName)
+sqlTableExists = checkIfTableExists()
 
 # If appending to existing table, add new fields if required
 if sqlTableExists and not args.dropTable:
