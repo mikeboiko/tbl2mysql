@@ -110,7 +110,6 @@ def defineSqlDBTableName(): # {{{2
 
 def initializeCSV(): # {{{2
     'Perform initialization for CSV file types'
-    print('Parsing {} CSV table into {} database'.format(args.inputTableName, args.database))
 
     global headerRow # Table field names
 
@@ -119,11 +118,14 @@ def initializeCSV(): # {{{2
         reader = csv.reader(fileCSV)
 
         # Get header row (used for extracting field names)
-        headerRow = next(reader)
+        try:
+            headerRow = next(reader)
+        except:
+            sys.exit(f'Error: {args.inputTableName} is empty')
+            # raise
 
 def initializeExcel(): # {{{2
     'Perform initialization for Excel file types'
-    print('Parsing {} Excel table into {} database'.format(args.inputTableName, args.database))
 
     global headerRow     # Table field names
     global sheet         # Excel worksheet object
@@ -154,7 +156,8 @@ def sqlQueriesPrepare(): # {{{2
     sqlQueryInsert = ''
     sqlQueryDrop = f'DROP TABLE IF EXISTS {sqlTableName}; '
 
-    sqlQueryCreate = f'CREATE TABLE {sqlTableName} (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, '
+    sqlQueryCreate = f'''CREATE TABLE IF NOT EXISTS {sqlTableName}
+                     (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, '''
     sqlInsertA = f'INSERT INTO {sqlTableName} ('
     sqlInsertB = ''
     for header in headerRow:
@@ -207,54 +210,6 @@ def sqlInsertDataFromExcel(): # {{{2
     # Close workbook connection required for on_demand sheet data
     excelWorkbook.release_resources()
 
-def sqlQueriesSelect(): # {{{2
-    '''Based on user arguments, decide whether to create
-    a new table or append records to existing table'''
-
-    global sqlQueryTotal  # Combined queries
-    global sqlQueryCreate # Create table query
-    global sqlQueryDrop   # Drop table query
-
-    # Only drop table if it exists and user requested the deletion
-    if not args.dropTable or not sqlTableExists:
-        sqlQueryDrop = ''
-
-    # Only create table when it doesn't exist or user requested drop
-    if sqlTableExists and not args.dropTable:
-        sqlQueryCreate = ''
-
-    # All of the SQL queries combined into one string
-    sqlQueryTotal = sqlQueryDrop + sqlQueryCreate + sqlQueryInsert
-
-def checkIfTableExists(): # {{{2
-    'Check if table already exists in database or not'
-
-    # global sqlTableName # Use table name defined in previous function
-
-    # Create cursor
-    dbCur = db.cursor()
-
-    # Query the information schema for table names
-    try:
-        dbCur.execute("""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_name = '{0}'
-            """.format(sqlTableName.replace('\'', '\'\'')))
-    except:
-        # Print error to stdout
-        print("Unexpected error:", sys.exc_info()[0])
-        raise
-
-    # Table exists
-    if dbCur.fetchone()[0] == 1:
-        dbCur.close()
-        return True
-
-    # Table doesn't exist
-    dbCur.close()
-    return False
-
 def mySqlDbConnect(): # {{{2
     'Initialize db connection'
 
@@ -266,6 +221,31 @@ def mySqlDbConnect(): # {{{2
                          user=args.user,
                          passwd=args.password,
                          db=args.database)
+
+    # Supress annoying warnings
+    from warnings import filterwarnings
+    filterwarnings('ignore', category = db.Warning)
+
+def sqlDropCreateTable(): # {{{2
+    'Drop old table/Create new table if required'
+
+    global sqlQueryCreate # Create table query
+    global sqlQueryDrop   # Drop table query
+
+    # Only drop table if the user requested it
+    if not args.dropTable:
+        sqlQueryDrop = ''
+
+    # Combine SQL Queries
+    sqlQueryTotal = sqlQueryDrop + sqlQueryCreate
+
+    try:
+        # Exexute query
+        db.cursor().execute(sqlQueryTotal)
+    except:
+        # Print error to stdout
+        print("Unexpected error:", sys.exc_info()[0])
+        raise
 
 def sqlAddNewFields(tableName): # {{{2
     'When appending to existing table, add new fields if required'
@@ -280,7 +260,7 @@ def sqlAddNewFields(tableName): # {{{2
         LIMIT 1
         ''')
 
-    # Find if there any fields in the input table that don't exist in the db table
+    # Find if there are any fields in the input table that don't exist in the db table
     numFields = len(dbCur.description)
     fieldNames = [i[0] for i in dbCur.description]
     newFields = list(set(headerRow) - set(fieldNames))
@@ -303,13 +283,12 @@ def sqlAddNewFields(tableName): # {{{2
     # Close cursor
     dbCur.close()
 
-def mySqlWrite(): # {{{2
+def sqlInsertRecords(): # {{{2
     'Perform MySQL db write operations'
 
     try:
         # Exexute query
-        db.cursor().execute(sqlQueryTotal)
-
+        db.cursor().execute(sqlQueryInsert)
         # Commit all database modifications
         db.commit()
     finally:
@@ -337,21 +316,21 @@ elif inputTableIsExcel:
 # Initialize db connection
 mySqlDbConnect()
 
-# Check if sql table already exists or not
-sqlTableExists = checkIfTableExists()
-
-# If appending to existing table, add new fields if required
-if sqlTableExists and not args.dropTable:
-    sqlAddNewFields(args.sqlTableName)
-
 # Prepare sql query strings
 sqlQueriesPrepare()
 
-# Select which queries to run
-sqlQueriesSelect()
+# Drop old table/Create new table if required
+sqlDropCreateTable()
+
+# If appending to existing table, add new fields (if required)
+if not args.dropTable:
+    sqlAddNewFields(args.sqlTableName)
 
 # Perform MySQL db write operations
-mySqlWrite()
+sqlInsertRecords()
+
+# Exit with no errors
+sys.exit(0)
 
 # os.system("pause")
 # sys.exit()
