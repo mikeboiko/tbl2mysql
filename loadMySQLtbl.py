@@ -16,33 +16,78 @@ import xlrd     # Excel Connection
 # Parse Arguments {{{1
 
 # Create parser with script description
-parser = argparse.ArgumentParser(description='Convert Excel Table to MySQL Table')
+parser = argparse.ArgumentParser(
+    description='Convert Excel Table to MySQL Table. Ex: loadMySQLtbl.py iGet.xlsx -db=yokogawa'
+)
 
-parser.add_argument(dest='inputTableName', action='store',
-                    help='Name of input table file')
-parser.add_argument('-ws', '--worksheet', dest='excelWorksheetName', action='store',
-                    default='default',
-                    help='Name of xlsx worksheet - default is 1st sheet')
-parser.add_argument('--host', dest='host', action='store',
-                    default='localhost',
-                    help='MySQL server host address - default is localhost')
-parser.add_argument('-p', '--port', dest='port', action='store',
-                    default=3306,
-                    help='MySQL port number')
-parser.add_argument('-u', '--user', dest='user', action='store',
-                    default='root',
-                    help='MySQL username')
-parser.add_argument('-pw', '--password', dest='password', action='store',
-                    default='',
-                    help='MySQL password')
-parser.add_argument('-db', '--database', dest='database', action='store',
-                    default='sample',
-                    help='MySQL database name')
-parser.add_argument('-t', '--table', dest='sqlTableName', action='store',
-                    default='default',
-                    help='MySQL table name - default is the input name')
-parser.add_argument('--dropTable', action='store_true',
-                    help='Drop the old table if it exists.')
+# Positional Arguments
+parser.add_argument(
+    dest='inputTableName',
+    action='store',
+    help='Name of input table file'
+)
+
+# Named Arguments
+parser.add_argument(
+    '-db',
+    '--database',
+    dest='database',
+    action='store',
+    default='sample',
+    help='MySQL database name'
+)
+parser.add_argument(
+    '--host',
+    dest='host',
+    action='store',
+    default='localhost',
+    help='MySQL server host address - default is localhost'
+)
+parser.add_argument(
+    '-u',
+    '--user',
+    dest='user',
+    action='store',
+    default='root',
+    help='MySQL username'
+)
+parser.add_argument(
+    '-pw',
+    '--password',
+    dest='password',
+    action='store',
+    default='',
+    help='MySQL password - default is no password'
+)
+parser.add_argument(
+    '-p',
+    '--port',
+    dest='port',
+    action='store',
+    default=3306,
+    help='MySQL port number - default is 3306'
+)
+parser.add_argument(
+    '-t',
+    '--table',
+    dest='sqlTableName',
+    action='store',
+    default='default',
+    help='MySQL table name - default is the input table name'
+)
+parser.add_argument(
+    '-ws',
+    '--worksheet',
+    dest='excelWorksheetName',
+    action='store',
+    default='default',
+    help='Name of xlsx worksheet - default is 1st sheet'
+)
+parser.add_argument(
+    '--dropTable',
+    action='store_true',
+    help='Drop the old table if it exists.'
+)
 
 # Create objects from arguments passed and information within parser
 args = parser.parse_args()
@@ -216,11 +261,13 @@ def mySqlDbConnect(): # {{{2
     global db # Database object
 
     # MySQL Connection
-    db = pymysql.connect(host=args.host,
-                         port=args.port,
-                         user=args.user,
-                         passwd=args.password,
-                         db=args.database)
+    db = pymysql.connect(
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        passwd=args.password,
+        db=args.database
+    )
 
     # Supress annoying warnings
     from warnings import filterwarnings
@@ -258,7 +305,7 @@ def sqlAddNewFields(tableName): # {{{2
         SELECT *
         FROM {args.database}.{tableName}
         LIMIT 1
-        ''')
+    ''')
 
     # Find if there are any fields in the input table that don't exist in the db table
     numFields = len(dbCur.description)
