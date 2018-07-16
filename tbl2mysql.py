@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.6
 # Name: xl2mysql.py
 # Description: Convert Excel workbook into a MySQL database
 # Authors: Mike Boiko, Travis Gall
